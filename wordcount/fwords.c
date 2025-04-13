@@ -29,6 +29,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/wait.h>
 
 #include "word_count.h"
 #include "word_helpers.h"
@@ -63,6 +64,64 @@ int main(int argc, char *argv[]) {
         count_words(&word_counts, stdin);
     } else {
         /* TODO */
+        for (int i = 1; i < argc; i++) {
+            int pipefd[2];
+            if (pipe(pipefd) == -1) {
+                perror("pipe creation failed");
+                exit(EXIT_FAILURE);
+            }
+            
+            /* Fork a child process */
+            pid_t pid = fork();
+            
+            if (pid == -1) {
+                /* Fork failed */
+                perror("fork failed");
+                exit(EXIT_FAILURE);
+            } else if (pid == 0) {
+                /* Child process */
+                
+                close(pipefd[0]);
+                
+                FILE *file = fopen(argv[i], "r");
+                if (file == NULL) {
+                    perror("Error opening file");
+                    exit(EXIT_FAILURE);
+                }
+                
+                word_count_list_t file_counts;
+                init_words(&file_counts);
+                
+                count_words(&file_counts, file);
+                fclose(file);
+                
+                FILE *out_stream = fdopen(pipefd[1], "w");
+                if (out_stream == NULL) {
+                    perror("fdopen failed");
+                    exit(EXIT_FAILURE);
+                }
+            
+                fprint_words(&file_counts, out_stream);
+                fclose(out_stream);
+                
+                exit(EXIT_SUCCESS);
+            } else {
+                /* Parent process */
+                
+                close(pipefd[1]);
+                
+                FILE *in_stream = fdopen(pipefd[0], "r");
+                if (in_stream == NULL) {
+                    perror("fdopen failed");
+                    exit(EXIT_FAILURE);
+                }
+                
+                merge_counts(&word_counts, in_stream);
+                fclose(in_stream); 
+                
+                waitpid(pid, NULL, 0);
+            }
+        }
     }
 
     /* Output final result of all process' work. */

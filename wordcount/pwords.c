@@ -32,6 +32,26 @@
 #include "word_count.h"
 #include "word_helpers.h"
 
+typedef struct {
+    word_count_list_t *word_counts;
+    char *filename;
+} thread_args_t;
+
+void *thread_count_words(void *arg) {
+    thread_args_t *args = (thread_args_t *)arg;
+    FILE *file = fopen(args->filename, "r");
+    
+    if (file != NULL) {
+        count_words(args->word_counts, file);
+        fclose(file);
+    } else {
+        perror("Error opening file");
+    }
+    
+    free(args);
+    return NULL;
+}
+
 /*
  * main - handle command line, spawning one thread per file.
  */
@@ -44,7 +64,32 @@ int main(int argc, char *argv[]) {
         /* Process stdin in a single thread. */
         count_words(&word_counts, stdin);
     } else {
-        /* TODO */
+        int num_threads = argc - 1;
+        pthread_t threads[num_threads];
+
+        for (int i = 0; i < num_threads; i++) {
+            thread_args_t *args = malloc(sizeof(thread_args_t));
+            if (args == NULL) { 
+                perror("Error allocating memory");
+                return EXIT_FAILURE;
+            }
+            
+            args->word_counts = &word_counts;
+            args->filename = argv[i + 1];
+
+            if (pthread_create(&threads[i], NULL, thread_count_words, args) != 0) {
+                perror("Error creating thread");
+                free(args);
+                return EXIT_FAILURE;
+            }
+        }
+        
+        for(int i = 0; i < num_threads; i++) {
+            if (pthread_join(threads[i], NULL) != 0) {
+                perror("Error joining thread");
+                return EXIT_FAILURE;
+            }
+        }
     }
 
     /* Output final result of all threads' work. */
